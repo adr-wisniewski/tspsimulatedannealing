@@ -1,5 +1,7 @@
 #include "Algorithm.h"
 #include <iostream>
+#include <cmath>
+#include "Random.h"
 
 namespace SimulatedAnnealing {
 
@@ -25,10 +27,10 @@ float Solution::CalculateCost(const TspProblem &problem) {
 std::pair<bool, bool> Solution::AreNeighbours(unsigned index1, unsigned index2) {
 	const unsigned cities = cycle.size();
 
-	if( index2 == 0 && index1 == cities -1 || index2 == index1 + 1 )
+	if( (index2 == 0 && index1 == cities -1) || (index2 == index1 + 1) )
 		return std::make_pair(true, false);
 
-	if( index1 == 0 && index2 == cities -1 || index1 == index2 + 1 )
+	if( (index1 == 0 && index2 == cities -1) || (index1 == index2 + 1) )
 		return std::make_pair(true, true);
 
 	return std::make_pair(false, false);
@@ -47,7 +49,7 @@ void InitialGenerator::Generate(const TspProblem &problem, Solution &solution) {
 	}
 
 	for(unsigned i = 0; i < cities; ++i) {
-		unsigned randomCity = rand() % allCities.size();
+		unsigned randomCity = Random::Next() % allCities.size();
 		solution.cycle[i] = allCities[randomCity];
 		allCities.erase(allCities.begin() + randomCity);
 	}
@@ -74,12 +76,21 @@ bool Schedule::IsFinished() {
 void Variation::Do(const TspProblem &problem, Solution &solution) {
 	unsigned cities = problem.GetCitiesCount();
 	assert(cities == solution.cycle.size());
+	assert(cities <= Random::Max());
+	firstIndex = static_cast<unsigned>(Random::Next()) % cities;
 
-	firstIndex = static_cast<unsigned>(rand()) % cities;
+	// this is uniform probability implementation
+	/*do {
+		secondIndex = static_cast<unsigned>(Random::Next()) % cities;
+	} while( secondIndex == firstIndex );*/
 
-	do {
-		secondIndex = static_cast<unsigned>(rand()) % cities;
-	} while( secondIndex == firstIndex );
+	// but this has O(1) complexity, pessimistically two iterations
+	secondIndex = static_cast<unsigned>(Random::Next()) % cities;
+	while(secondIndex == firstIndex) {
+		if(++secondIndex >= cities) {
+			secondIndex = 0;
+		}
+	}
 
 	previousCost = solution.cost;
 
@@ -119,12 +130,12 @@ void Variation::Do(const TspProblem &problem, Solution &solution) {
 		solution.cost += problem.GetDistance(secondCity, firstCity);
 	}
 	
-	// TODO: remove debug only
+	/*// TODO: remove debug only
 	float validCost = solution.CalculateCost(problem);
-	float delta = abs(solution.cost - validCost);
+	float delta = std::abs(solution.cost - validCost);
 	if ( delta > 0.2) {
 		std::cerr << "Accumulated error is " << delta << std::endl;
-	}
+	}*/
 }
 
 void Variation::UndoLast(Solution &solution) {
@@ -140,12 +151,12 @@ void Variation::SwapCities(Solution &solution) {
 
 void Solve(const TspProblem &problem, Schedule &schedule, Variation &variation, Solution &solution) {
 	Solution currentSolution = solution;
-	unsigned steps = 0; // TODO: remove this
+	//unsigned steps = 0; // TODO: remove this
 	float temperature;
 	float oldCost;
 
 	do {
-		++steps; // TODO: remove this
+		//++steps; // TODO: remove this
 
 		temperature = schedule.GetNextTemperature();
 		oldCost = currentSolution.cost;
@@ -159,7 +170,7 @@ void Solve(const TspProblem &problem, Schedule &schedule, Variation &variation, 
 		} else if(currentSolution.cost >= oldCost) {
 			float costDelta = currentSolution.cost - oldCost;
 			float probabilityThreshold = exp(-costDelta/temperature);
-			float probabilitySample = rand() / static_cast<float>(RAND_MAX);
+			float probabilitySample = Random::Next() / static_cast<float>(Random::Max());
 
 			// step back to previous solution
 			if( probabilitySample > probabilityThreshold ) {
@@ -167,15 +178,14 @@ void Solve(const TspProblem &problem, Schedule &schedule, Variation &variation, 
 			}
 		}
 
-		if( steps % 100000 == 0 ) {
-			// recalculate cost due to floating point arithmetic error accumulation
-			std::cerr << "\t\tAlgorithm passed " << steps << " steps. The temperature is " << temperature << std::endl; // TODO: remove this
-			currentSolution.cost = currentSolution.CalculateCost(problem);
-		}
+		/*if( steps % 100000 == 0 ) { // TODO: remove this
+			std::cerr << "\t\tAlgorithm passed " << steps << " steps. The temperature is " << temperature << std::endl;
+			 currentSolution.cost = currentSolution.CalculateCost(problem); // recalculate cost due to floating point arithmetic error accumulation
+		}*/
 
 	} while(!schedule.IsFinished());
 
-	std::cerr << "\t\tAlgorithm took " << steps << " steps" << std::endl; // TODO: remove this
+	// std::cerr << "\t\tAlgorithm took " << steps << " steps" << std::endl; // TODO: remove this
 }
 
 } // namespace SimulatedAnnealing

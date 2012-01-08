@@ -2,12 +2,16 @@
 #include "TspProblem.h"
 #include "Timer.h"
 #include "Algorithm.h"
+#include "Random.h"
 #include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <string>
 #include <sstream>
+#include <limits>
 #include <ctime>
+#include <cstring>
+#include <cstdlib>
 
 // constants for defaults
 const int ITERATIONS = 1;
@@ -30,15 +34,26 @@ int scheduleSteps = -1;
 // observerd times
 double preparationTime;
 double algorithmTime;
+double resultsTime;
+
+// this is for options checking
+#define GUARD(v) guard(v, #v, __FILE__, __LINE__)
+
+void guard(bool value, const char* line, const char* filename, int linenumber) {
+	if(!value) {
+		std::cerr << "GUARD ERROR " << line << " in " << filename << " at " << linenumber << std::endl;
+		abort();
+	}
+}
 
 // this is written as simply as possible
-bool process_command_line(int argc, char* argv[]) {
+bool process_options(int argc, char* argv[], TspProblem &problem) {
 
 	// parse optional
 	for(int currentArgument = 1; currentArgument < argc; currentArgument += 2) {
-		assert(currentArgument + 1 < argc);
-		assert(strlen(argv[currentArgument]) >= 2);
-		assert(argv[currentArgument][0] == '-');
+		GUARD(currentArgument + 1 < argc);
+		GUARD(strlen(argv[currentArgument]) >= 2);
+		GUARD(argv[currentArgument][0] == '-');
 
 		switch(argv[currentArgument][1]) {
 		case 'c':
@@ -75,38 +90,8 @@ bool process_command_line(int argc, char* argv[]) {
 		}
 	}
 
-	assert(!!(cities != -1) ^ !!(!ifile.empty()));		// -c xor -i
-	assert(!!(!ofile.empty()) ^ !!(!ifile.empty()));	// -o xor -i
-	return true;
-}
-
-void do_algorithm_iterations(const TspProblem &problem, int iterations, SimulatedAnnealing::Solution &bestSolution) {
-	std::cerr << "Launching " << iterations << " iterations of algorithm on problem size " << problem.GetCitiesCount() << std::endl;
-
-	SimulatedAnnealing::Solution solution;
-	SimulatedAnnealing::InitialGenerator generator;
-
-	for( int i = 0; i < iterations; ++i) {
-		std::cerr << "\tIteration " << i << std::endl;
-		generator.Generate(problem, solution);
-
-		SimulatedAnnealing::Schedule schedule(initialTemperature, minimalTemperature, scheduleSteps);
-		SimulatedAnnealing::Variation variation;
-
-		SimulatedAnnealing::Solve(problem, schedule, variation, solution);
-
-		if( i == 0 || solution.cost < bestSolution.cost ) {
-			bestSolution = solution;
-		}
-	}
-}
-
-int main(int argc, char* argv[])
-{
-	Timer::Instance.Start();
-
-	if(!process_command_line(argc, argv))
-		return -1;
+	GUARD(!!(cities != -1) ^ !!(!ifile.empty()));	// -c xor -i
+	GUARD(!(!ofile.empty() && !ifile.empty()));		// !(-o && -i)
 
 	// apply defaults
 	iterantions = iterantions != -1 ? iterantions : ITERATIONS;
@@ -115,19 +100,14 @@ int main(int argc, char* argv[])
 	minimalTemperature = minimalTemperature != -1 ? minimalTemperature : MINIMAL_TEMPERATURE;
 	scheduleSteps = scheduleSteps != -1 ? scheduleSteps : SCHEDULE_STEPS;
 
-	// initialize random
-	srand(seed);
-
-	// initialize problem
-	TspProblem problem;
 	if( !ifile.empty() ) {
 		std::cerr << "Using input file " << ifile << std::endl;
-		std::ifstream file(ifile);
-		assert(file.good());
+		std::ifstream file(ifile.c_str());
+		GUARD(file.good());
 		problem.Unserialize(file);
 		file.close();
 	} else {
-		assert(cities > 1);
+		GUARD(cities > 1);
 		std::cerr << "Creating random problem of size " << cities << std::endl;
 		problem.Randomize(cities, MAX_DISTANCE);
 	}
@@ -135,8 +115,8 @@ int main(int argc, char* argv[])
 	// save problem for later use
 	if( !ofile.empty() ) {
 		std::cerr << "Dumping problem to file " << ofile << std::endl;
-		std::ofstream file(ofile);
-		assert(file.good());
+		std::ofstream file(ofile.c_str());
+		GUARD(file.good());
 		problem.Serialize(file);
 		file.close();
 	}
@@ -148,6 +128,66 @@ int main(int argc, char* argv[])
 	std::cerr << "\tInitial temperature: "	<< initialTemperature << std::endl;
 	std::cerr << "\tMinimal temperature: "	<< minimalTemperature << std::endl;
 	std::cerr << "\tSchedule steps:\t"		<< scheduleSteps << std::endl;
+	return true;
+}
+
+void print_results(SimulatedAnnealing::Solution &bestSolution) {
+	// print best solution
+	std::cout << std::fixed << std::setw(20) << std::setprecision(10) << bestSolution.cost << std::endl;
+	for(unsigned i = 0, size = bestSolution.cycle.size(); i < size; ++i) {
+		std::cout << bestSolution.cycle[i] << " ";
+	}
+	std::cout << std::endl;
+}
+
+void do_algorithm_iterations(const TspProblem &problem, int iterations, SimulatedAnnealing::Solution &bestSolution, int seed) {
+	bestSolution.cost = std::numeric_limits<float>::max();
+
+	#pragma omp parallel 
+	{
+		SimulatedAnnealing::Solution threadBest;
+		threadBest.cost = std::numeric_limits<float>::max();
+
+		#pragma omp for
+		for(int i = 0; i < iterations; ++i) {
+			// create all needed elements
+			SimulatedAnnealing::Solution solution;
+			SimulatedAnnealing::InitialGenerator generator;
+			SimulatedAnnealing::Schedule schedule(initialTemperature, minimalTemperature, scheduleSteps);
+			SimulatedAnnealing::Variation variation;
+
+			// initialize random generator
+			Random::Seed(seed + i);
+
+			// generate initial solution
+			generator.Generate(problem, solution);
+
+			// solve problem
+			SimulatedAnnealing::Solve(problem, schedule, variation, solution);
+
+			// update best solution
+			if(solution.cost < threadBest.cost ) {
+				threadBest = solution;
+			}
+		}
+
+		#pragma omp critical 
+		{
+			if(threadBest.cost < bestSolution.cost ) {
+				bestSolution = threadBest;
+			}
+		}
+	}
+}
+
+int main(int argc, char* argv[])
+{
+	Timer::Instance.Start();
+
+	// load options
+	TspProblem problem;
+	if(!process_options(argc, argv, problem))
+		return -1;
 
 	// mark preparation time
 	preparationTime = Timer::Instance.ElapsedSeconds();
@@ -155,21 +195,20 @@ int main(int argc, char* argv[])
 
 	// start algorithm
 	SimulatedAnnealing::Solution bestSolution;
-	do_algorithm_iterations(problem, iterantions, bestSolution);
+	do_algorithm_iterations(problem, iterantions, bestSolution, seed);
 
 	// mark algorithm time
 	algorithmTime = Timer::Instance.ElapsedSeconds();
 	std::cerr << "Finished algorithm in " << algorithmTime - preparationTime << "s. Current time is: " << algorithmTime << std::endl;
 
-	// print best solution
-	std::cout << std::fixed << std::setw(20) << std::setprecision(10) << bestSolution.cost << std::endl;
-	for(unsigned i = 0, size = bestSolution.cycle.size(); i < size; ++i) {
-		std::cout << bestSolution.cycle[i] << " ";
-	}
-	std::cout << std::endl;
+	// print results
+	print_results(bestSolution);
 
-	// TODO: remove this
-	system("PAUSE");
+	// mark results time
+	resultsTime = Timer::Instance.ElapsedSeconds();
+	std::cerr << "Finished result output in " << resultsTime - algorithmTime << "s. Current time is: " << resultsTime << std::endl;
+
+	std::cerr << preparationTime << "\t" << algorithmTime - preparationTime << "\t" << resultsTime - algorithmTime << "\t" << std::endl;
 	return 0;
 }
 
