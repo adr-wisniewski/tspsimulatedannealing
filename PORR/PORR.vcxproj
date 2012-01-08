@@ -81,11 +81,13 @@
   <ItemGroup>
     <ClCompile Include="Algorithm.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="Random.cpp" />
     <ClCompile Include="Timer.cpp" />
     <ClCompile Include="TspProblem.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Algorithm.h" />
+    <ClInclude Include="Random.h" />
     <ClInclude Include="Timer.h" />
     <ClInclude Include="TspProblem.h" />
   </ItemGroup>

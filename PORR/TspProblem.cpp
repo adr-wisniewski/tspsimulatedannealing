@@ -1,6 +1,6 @@
 #include "TspProblem.h"
-#include <cstdlib>
 #include <iostream>
+#include "Random.h"
 
 TspProblem::TspProblem() : citiesCount(0), distanceMatrix(0L)  {
 	// empty
@@ -17,7 +17,7 @@ void TspProblem::Randomize(unsigned _citiesCount, unsigned maxDistance) {
 	distanceMatrix = new float[citiesCount*citiesCount];
 
 	for( unsigned i = 0, count = citiesCount * citiesCount; i < count; ++i ) {
-		float multiplier = rand() / float(RAND_MAX);
+		float multiplier = Random::Next() / float(Random::Max());
 		distanceMatrix[i] = multiplier * maxDistance;
 	}
 }

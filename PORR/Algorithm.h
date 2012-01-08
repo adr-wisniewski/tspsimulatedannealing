@@ -1,5 +1,5 @@
-#ifndef PORR__SIMULATEDANNEALING_H__INCLUDED
-#define PORR__SIMULATEDANNEALING_H__INCLUDED
+#ifndef PORR__ALGORITHM_H__INCLUDED
+#define PORR__ALGORITHM_H__INCLUDED
 
 #include <vector>
 #include <utility>
